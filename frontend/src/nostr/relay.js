@@ -28,6 +28,7 @@ export class Relay {
     this.url = url;
     this.ws = null;
     this.subscriptions = {};   // subId -> { onEvent, onEose }
+    this.outbox = [];          // queued publish messages while reconnecting
     this.onStatusChange = () => {};
     this.connected = false;
     this.closed = false;       // set true to stop auto-reconnect
@@ -49,6 +50,7 @@ export class Relay {
       for (const [subId, sub] of Object.entries(this.subscriptions)) {
         this._sendReq(subId, sub.filter);
       }
+      this._flushOutbox();
     };
 
     this.ws.onclose = () => {
@@ -84,7 +86,8 @@ export class Relay {
 
   // Publish a signed event.
   publish(event) {
-    this._send(["EVENT", event]);
+    this.outbox.push(["EVENT", event]);
+    this._flushOutbox();
   }
 
   _sendReq(subId, filter) {
@@ -94,8 +97,24 @@ export class Relay {
   _send(message) {
     // readyState is the source of truth — `connected` can briefly disagree
     // with a freshly swapped socket during reconnects.
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    try {
       this.ws.send(JSON.stringify(message));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  _flushOutbox() {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const pending = this.outbox;
+    this.outbox = [];
+    for (const message of pending) {
+      if (!this._send(message)) {
+        this.outbox.unshift(message);
+        break;
+      }
     }
   }
 
@@ -112,17 +131,27 @@ export class Relay {
 
 
 // ─────────────────────────────────────────────
-// The 4 relays KnOT connects to
+// The relays KnOT connects to
 // ─────────────────────────────────────────────
-// One local relay (our Python backend) plus three big public ones.
-// Connecting to several relays is how Nostr stays decentralized: your
-// note is copied to all of them, so no single relay can hide or lose it.
-
+// One local relay (our Python backend) plus the same set of big public
+// relays the major mobile clients use. This matters for counts: a zap
+// receipt (kind 9735) is published by the ZAPPER's wallet to whatever
+// relays it picks — if we don't subscribe to those relays, that zap is
+// invisible to us and our zap count comes out lower than other apps.
+// Matching this list to what the popular apps use is what keeps zap,
+// like and repost counts in sync across clients.
 export const DEFAULT_RELAYS = [
-  { name: "KnOT",    url: DEFAULT_RELAY },   // our own Python relay (proxied dynamically)
-  { name: "Damus",   url: "wss://relay.damus.io" },
-  { name: "Primal",  url: "wss://relay.primal.net" },
-  { name: "nos.lol", url: "wss://nos.lol" },
+  { name: "KnOT",         url: DEFAULT_RELAY },   // our own Python relay (proxied dynamically)
+  { name: "Damus",        url: "wss://relay.damus.io" },
+  { name: "Primal",       url: "wss://relay.primal.net" },
+  { name: "nos.lol",      url: "wss://nos.lol" },
+  { name: "Band",         url: "wss://relay.nostr.band" },
+  { name: "Wine",         url: "wss://nostr.wine" },
+  { name: "Snort",        url: "wss://relay.snort.social" },
+  { name: "nostr.land",   url: "wss://nostr.land" },
+  { name: "nostr.mom",    url: "wss://nostr.mom" },
+  { name: "oxtr.dev",     url: "wss://nostr.oxtr.dev" },
+  { name: "nos.today",    url: "wss://search.nos.today" },
 ];
 
 
@@ -213,7 +242,11 @@ export class RelayPool {
   // Publish the signed note to every relay.
   publish(event) {
     for (const entry of this.entries) {
-      entry.relay.publish(event);
+      try {
+        entry.relay.publish(event);
+      } catch {
+        // One relay failing should not block the rest of the fan-out.
+      }
     }
   }
 

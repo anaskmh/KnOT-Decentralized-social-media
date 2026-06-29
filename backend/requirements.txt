@@ -1,3 +1,4 @@
 coincurve
 websockets
 cryptography
+boto3

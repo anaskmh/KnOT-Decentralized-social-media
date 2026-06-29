@@ -1,5 +1,6 @@
 // Create a Lightning invoice to receive sats (NWC make_invoice).
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
 
 import Icon from "../ui/Icon";
 import { useWallet } from "../../context/WalletContext";
@@ -13,6 +14,17 @@ export default function ReceiveModal({ onClose }) {
   const [invoice, setInvoice] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    if (!invoice || !canvasRef.current) return;
+    QRCode.toCanvas(canvasRef.current, invoice, {
+      width: 220,
+      margin: 2,
+      errorCorrectionLevel: "M",
+      color: { dark: "#000000", light: "#ffffff" },
+    });
+  }, [invoice]);
 
   const create = async () => {
     setLoading(true);
@@ -53,9 +65,9 @@ export default function ReceiveModal({ onClose }) {
               <p className="text-tertiary text-body-md flex items-center gap-1">
                 <Icon name="check_circle" fill size={18} /> Invoice for {sats.toLocaleString()} sats created.
               </p>
-              <p className="text-on-surface-variant text-mono-label">
-                (Simulated: it auto-settles in a few seconds and your balance updates.)
-              </p>
+              <div className="flex justify-center p-3 bg-white rounded-xl">
+                <canvas ref={canvasRef} />
+              </div>
               <textarea
                 readOnly
                 value={invoice}

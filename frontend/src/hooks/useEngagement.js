@@ -12,6 +12,7 @@ import {
   KIND_REPOST,
   KIND_REACTION,
 } from "../nostr/events";
+import { getZapAmountSats } from "../nostr/zap";
 
 const KIND_ZAP_RECEIPT = 9735;
 
@@ -40,8 +41,9 @@ export function useEngagement(note) {
   return useMemo(() => {
     let replies = 0;
     let reposts = 0;
-    let likes = 0;
-    let zaps = 0;
+    const likers = new Set();
+    let zaps = 0;       // number of zap receipts (people who zapped)
+    let zapSats = 0;    // total sats zapped — what other clients display
     let liked = false;
     let reposted = false;
 
@@ -51,11 +53,23 @@ export function useEngagement(note) {
         reposts += 1;
         if (e.pubkey === identity?.pubHex) reposted = true;
       } else if (e.kind === KIND_REACTION) {
-        likes += 1;
+        likers.add(e.pubkey);
         if (e.pubkey === identity?.pubHex) liked = true;
-      } else if (e.kind === KIND_ZAP_RECEIPT) zaps += 1;
+      } else if (e.kind === KIND_ZAP_RECEIPT) {
+        zaps += 1;
+        zapSats += getZapAmountSats(e);
+      }
     }
 
-    return { replies, reposts, likes, zaps, liked, reposted };
+    return {
+      replies,
+      reposts,
+      likes: likers.size,
+      likers: [...likers],
+      zaps,
+      zapSats,
+      liked,
+      reposted,
+    };
   }, [events, identity?.pubHex]);
 }

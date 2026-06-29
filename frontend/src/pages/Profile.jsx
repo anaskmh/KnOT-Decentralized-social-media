@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────
 // Profile — banner, identity, follow, tabs (from user_profile_desktop)
 // ─────────────────────────────────────────────
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
 import Header from "../components/ui/Header";
@@ -9,7 +9,8 @@ import Icon from "../components/ui/Icon";
 import Avatar from "../components/ui/Avatar";
 import NoteCard from "../components/NoteCard";
 import EditProfileModal from "../components/EditProfileModal";
-import KeysModal from "../components/KeysModal";
+import ReportModal from "../components/ReportModal";
+import QrCodeModal from "../components/QrCodeModal";
 import { useNostr, useProfile } from "../context/NostrContext";
 import { useFeed } from "../hooks/useFeed";
 import { useFollowCounts } from "../hooks/useFollowCounts";
@@ -24,7 +25,7 @@ const isReply = (n) => n.tags.some((t) => t[0] === "e");
 export default function Profile() {
   const { pubkey: routePubkey } = useParams();
   const navigate = useNavigate();
-  const { identity, isFollowing, toggleFollow } = useNostr();
+  const { identity, isFollowing, toggleFollow, isMuted, toggleMute } = useNostr();
 
   const pubkey = routePubkey || identity.pubHex;
   const isMe = pubkey === identity.pubHex;
@@ -33,10 +34,24 @@ export default function Profile() {
   const { following, followers } = useFollowCounts(pubkey);
   const [tab, setTab] = useState("Notes");
   const [editOpen, setEditOpen] = useState(false);
-  const [keysOpen, setKeysOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [lightbox, setLightbox] = useState(null); // { url, origin, iris } or null
   const [lightboxClosing, setLightboxClosing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+  const menuRef = useRef(null);
+  const blocked = isMuted(pubkey);
+
+  // Close the three-dot menu when clicking outside it.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   const closeLightbox = () => {
     if (!lightbox) return;
@@ -93,28 +108,69 @@ export default function Profile() {
             <Avatar pubkey={pubkey} size={96} />
           </button>
         </div>
-        <div className="flex justify-end gap-2 py-3">
+        <div className="flex flex-wrap justify-end gap-2 py-3">
+          <button
+            onClick={() => setQrOpen(true)}
+            className="border border-outline text-on-surface w-9 h-9 rounded-full hover:bg-surface-container-high flex items-center justify-center"
+            title="QR code"
+          >
+            <Icon name="qr_code_2" size={18} />
+          </button>
+
           {isMe ? (
+            <button onClick={() => setEditOpen(true)} className="border border-outline text-on-surface px-4 py-1.5 rounded-full font-bold text-label-sm hover:bg-surface-container-high">
+              Edit profile
+            </button>
+          ) : (
             <>
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  className="border border-outline text-on-surface w-9 h-9 rounded-full hover:bg-surface-container-high flex items-center justify-center"
+                  title="More options"
+                >
+                  <Icon name="more_horiz" size={20} />
+                </button>
+
+                {menuOpen && (
+                  <div className="absolute top-full right-0 mt-2 w-56 bg-surface-container-high border border-outline-variant rounded-2xl shadow-xl overflow-hidden z-20">
+                    <button
+                      onClick={() => { setMenuOpen(false); setReportOpen(true); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-container-highest transition-colors"
+                    >
+                      <Icon name="flag" size={18} className="text-white" />
+                      <span className="font-label-sm text-label-sm font-bold text-white">Report user</span>
+                    </button>
+                    <button
+                      onClick={() => { setMenuOpen(false); toggleMute(pubkey); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-container-highest transition-colors"
+                    >
+                      <Icon name={blocked ? "lock_open" : "block"} size={18} className="text-error" />
+                      <span className="font-label-sm text-label-sm font-bold text-error">
+                        {blocked ? "Unblock user" : "Block user"}
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <button
-                onClick={() => setKeysOpen(true)}
-                className="border border-outline text-on-surface px-4 py-1.5 rounded-full font-bold text-label-sm hover:bg-surface-container-high flex items-center gap-1.5"
+                onClick={() => navigate("/messages", { state: { openPubkey: pubkey } })}
+                className="border border-outline text-on-surface w-9 h-9 rounded-full hover:bg-surface-container-high flex items-center justify-center"
+                title="Message"
               >
-                <Icon name="key" size={16} className="text-primary" /> Keys
+                <Icon name="chat_bubble" size={18} />
               </button>
-              <button onClick={() => setEditOpen(true)} className="border border-outline text-on-surface px-4 py-1.5 rounded-full font-bold text-label-sm hover:bg-surface-container-high">
-                Edit profile
+
+              <button
+                onClick={() => toggleFollow(pubkey)}
+                className={`px-5 py-1.5 rounded-full font-bold text-label-sm active:scale-95 transition-all ${
+                  following_me ? "border border-outline text-on-surface" : "bg-on-surface text-surface"
+                }`}
+              >
+                {following_me ? "Following" : "Follow"}
               </button>
             </>
-          ) : (
-            <button
-              onClick={() => toggleFollow(pubkey)}
-              className={`px-5 py-1.5 rounded-full font-bold text-label-sm active:scale-95 transition-all ${
-                following_me ? "border border-outline text-on-surface" : "bg-on-surface text-surface"
-              }`}
-            >
-              {following_me ? "Following" : "Follow"}
-            </button>
           )}
         </div>
       </div>
@@ -159,28 +215,39 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-outline-variant mt-4 sticky top-14 glass-header z-30">
-        {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)} className="flex-1 py-3 font-bold text-label-sm relative hover:bg-surface-container-low transition-colors">
-            <span className={tab === t ? "text-on-surface" : "text-on-surface-variant"}>{t}</span>
-            {tab === t && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-primary rounded-full" />}
-          </button>
-        ))}
-      </div>
-
-      {/* Notes */}
-      {shown.length === 0 ? (
-        <div className="p-10 flex flex-col items-center text-on-surface-variant opacity-40 gap-3">
-          <Icon name="inbox" size={40} />
-          <p className="text-body-md">Nothing here yet.</p>
+      {blocked ? (
+        /* Blocked — hide their posts entirely, just say so. */
+        <div className="p-10 flex flex-col items-center text-on-surface-variant gap-3 mt-4">
+          <Icon name="block" size={40} className="text-error" />
+          <p className="text-body-md font-bold text-on-surface">User is blocked</p>
         </div>
       ) : (
-        shown.map((note) => <NoteCard key={note.id} note={note} />)
+        <>
+          {/* Tabs */}
+          <div className="flex border-b border-outline-variant mt-4 sticky top-14 glass-header z-30">
+            {TABS.map((t) => (
+              <button key={t} onClick={() => setTab(t)} className="flex-1 py-3 font-bold text-label-sm relative hover:bg-surface-container-low transition-colors">
+                <span className={tab === t ? "text-on-surface" : "text-on-surface-variant"}>{t}</span>
+                {tab === t && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-primary rounded-full" />}
+              </button>
+            ))}
+          </div>
+
+          {/* Notes */}
+          {shown.length === 0 ? (
+            <div className="p-10 flex flex-col items-center text-on-surface-variant opacity-40 gap-3">
+              <Icon name="inbox" size={40} />
+              <p className="text-body-md">Nothing here yet.</p>
+            </div>
+          ) : (
+            shown.map((note) => <NoteCard key={note.id} note={note} />)
+          )}
+        </>
       )}
 
       {editOpen && <EditProfileModal onClose={() => setEditOpen(false)} />}
-      {keysOpen && <KeysModal onClose={() => setKeysOpen(false)} />}
+      {reportOpen && <ReportModal pubkey={pubkey} onClose={() => setReportOpen(false)} />}
+      {qrOpen && <QrCodeModal pubkey={pubkey} onClose={() => setQrOpen(false)} />}
 
       {/* Image lightbox */}
       {lightbox && (

@@ -99,6 +99,41 @@ npm run dev              # http://localhost:5173
 - **Network & Relays** — relay connection status
 - **Notifications** — per-type toggles (Followers / Zaps / Reactions / Reposts / Replies / Mentions); unticking stops that subscription
 
+### Messages (DMs)
+- **Encrypted DMs** — NIP-04 encrypt/decrypt, `kind: 4` events
+- **Conversation list** — grouped by counterparty, sorted by most recent message
+- **Unread tracking** — local read-state map (per-device, not relay-synced)
+- **Share into DM** — share a post or short video as a `nostr:nevent…` link, rendered as a rich preview by any compatible client
+- **Shared video bubble** — tap to jump straight to the full short at `/shorts/:id`
+- **Double-tap-to-like** — Instagram-style heart-pop animation on any message bubble, persists a small liked badge (local-only, no reaction event)
+- **Per-message menu** — Copy / Delete (delete is local-view only — DMs are already encrypted + delivered)
+- **Multi-select share** — `ShareModal` lets you check off multiple contacts at once, then **Send** to all of them with a single confirmation toast ("Shared to 1 person" / "Shared to N people")
+
+### Shorts (Video Feed)
+- **NIP-71 short videos** — `kind: 22` events, media resolved from NIP-92 `imeta` tags
+- **Upload** — BUD-01 Blossom protocol (signed `kind: 24242` auth event) to any configured Blossom server
+- **Full-screen swipe feed** at `/shorts`, plus a single-video deep link at `/shorts/:id`
+- **Engagement row** — like, comment, zap, share — clean icons with no background circle
+- **Comments** — threaded replies on a short (`ShortComments.jsx`)
+- **Mute toggle** — shared across the feed rather than per-card
+
+### Wallet (Lightning / NWC)
+- **NWC — Nostr Wallet Connect (NIP-47)** — connect any NWC-compatible wallet via a `nostr+walletconnect://` URI
+- **Send / Receive modals** — pay or generate invoices straight from the app
+- **Balance display** — live balance from the connected wallet
+- **bolt11 decoding** — preview amount, description, and expiry before paying
+- **Zaps (NIP-57)** — zap request/receipt flow (`kind: 9734` / `9735`) feeds the same wallet connection
+
+### Media Server
+- **Self-hosted option** — `backend/relay/media_server.py`, a simple S3-backed upload endpoint (SHA256-keyed)
+- **Configurable per user** — Settings → Media Server, pick which Blossom/media server your uploads go to
+- **Status mesh view** — `MediaServerMesh.jsx` visualizes reachability of configured media servers, mirroring the existing relay mesh view
+
+### Moderation & Misc
+- **Report** — NIP-56 report flow (`kind: 1984`) with reason + optional detail
+- **People modal** — quick followers/following list with avatar, name, and click-through to profile
+- **QR code modal** — scannable QR for your npub or lightning address
+
 ### Relay Architecture
 - Connects to **4 relays** simultaneously: local KnOT relay + Damus + Primal + nos.lol
 - **RelayPool** deduplicates events by ID across all relays
@@ -114,12 +149,18 @@ npm run dev              # http://localhost:5173
 |-----|-------------|-------|
 | NIP-01 | Basic protocol — events, filters, WebSocket | `backend/relay.py`, `nostr/relay.js` |
 | NIP-02 | Contact list (follows) | `nostr/events.js` `buildContacts()` |
+| NIP-04 | Encrypted DMs (kind 4) | `nostr/dm.js` |
 | NIP-07 | Browser extension signing | `nostr/keys.js` |
 | NIP-18 | Repost (kind 6) | `nostr/events.js` `buildRepost()` |
-| NIP-19 | bech32 encoding (npub/nsec/note1) | `nostr/keys.js`, `nostr/format.js` |
+| NIP-19 | bech32 encoding (npub/nsec/note1/nevent1) | `nostr/keys.js`, `nostr/format.js` |
 | NIP-25 | Reactions (kind 7) | `nostr/events.js` `buildReaction()` |
+| NIP-47 | Nostr Wallet Connect (NWC) | `nostr/nwc.js` |
 | NIP-51 | Bookmarks (kind 10003), Mutes (kind 10000) | `nostr/events.js` |
-| NIP-57 | Lightning Zaps (kind 9735) | `ZapModal.jsx` |
+| NIP-56 | Reporting (kind 1984) | `ReportModal.jsx` |
+| NIP-57 | Lightning Zaps (kind 9734/9735) | `nostr/zap.js`, `ZapModal.jsx` |
+| NIP-71 | Short videos (kind 22) | `nostr/video.js`, `pages/Shorts.jsx` |
+| NIP-92 | Media attachments (`imeta` tags) | `nostr/video.js` |
+| BUD-01 | Blossom media upload protocol | `nostr/upload.js` |
 
 ---
 

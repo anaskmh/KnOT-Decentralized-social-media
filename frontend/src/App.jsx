@@ -9,6 +9,7 @@ import AppLayout from "./components/layout/AppLayout";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
 import Explore from "./pages/Explore";
+import Shorts from "./pages/Shorts";
 import Notifications from "./pages/Notifications";
 import Messages from "./pages/Messages";
 import Bookmarks from "./pages/Bookmarks";
@@ -24,6 +25,7 @@ import SettingsMuted from "./pages/settings/SettingsMuted";
 import SettingsModeration from "./pages/settings/SettingsModeration";
 import SettingsZaps from "./pages/settings/SettingsZaps";
 import SettingsNotifications from "./pages/settings/SettingsNotifications";
+import SettingsMediaServer from "./pages/settings/SettingsMediaServer";
 
 // Apply saved theme immediately on load.
 initTheme();
@@ -38,6 +40,8 @@ export default function App() {
       <Route element={<AppLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/explore" element={<Explore />} />
+        <Route path="/shorts" element={<Shorts />} />
+        <Route path="/shorts/:id" element={<Shorts />} />
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/messages" element={<Messages />} />
         <Route path="/bookmarks" element={<Bookmarks />} />
@@ -59,6 +63,7 @@ export default function App() {
         <Route path="/settings/moderation" element={<SettingsModeration />} />
         <Route path="/settings/zaps" element={<SettingsZaps />} />
         <Route path="/settings/notifications" element={<SettingsNotifications />} />
+        <Route path="/settings/media-server" element={<SettingsMediaServer />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

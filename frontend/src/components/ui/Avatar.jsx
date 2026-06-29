@@ -4,12 +4,22 @@
 // If the user's kind-0 profile has a picture we show it; otherwise we draw a
 // deterministic colored circle with their initials (so every pubkey looks
 // consistent across the app).
-import { useProfile } from "../../context/NostrContext";
+import { useProfile, useProfileLoading } from "../../context/NostrContext";
 import { avatarColor, avatarInitials } from "../../nostr/format";
 
 export default function Avatar({ pubkey, size = 40, className = "" }) {
   const profile = useProfile(pubkey);
+  const loading = useProfileLoading(pubkey);
   const dimension = { width: size, height: size };
+
+  if (!profile?.picture && loading) {
+    return (
+      <div
+        style={dimension}
+        className={`rounded-full flex-shrink-0 bg-surface-container-high animate-pulse ${className}`}
+      />
+    );
+  }
 
   if (profile?.picture) {
     return (

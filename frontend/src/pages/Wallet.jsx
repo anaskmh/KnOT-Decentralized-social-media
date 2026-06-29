@@ -3,13 +3,11 @@
 // ─────────────────────────────────────────────
 // Connected → live balance, Receive/Send, real transaction history.
 // Not connected → the "Connect Your Wallet" onboarding from the design.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import Header from "../components/ui/Header";
 import Icon from "../components/ui/Icon";
-import Avatar from "../components/ui/Avatar";
 import { useWallet } from "../context/WalletContext";
-import { useNostr, useProfile } from "../context/NostrContext";
 
 import ConnectWalletModal from "../components/wallet/ConnectWalletModal";
 import ReceiveModal from "../components/wallet/ReceiveModal";
@@ -17,12 +15,19 @@ import SendModal from "../components/wallet/SendModal";
 import { timeAgo } from "../nostr/format";
 
 export default function Wallet() {
-  const { connected, balanceSats, transactions, disconnect, error } = useWallet();
+  const { connected, balanceSats, transactions, disconnect, error, markWalletRead } = useWallet();
   const [modal, setModal] = useState(null); // "connect" | "receive" | "send"
   const [menuOpen, setMenuOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [activeTx, setActiveTx] = useState(null);
 
-  const btc = balanceSats == null ? "0.000000" : (balanceSats / 1e8).toFixed(6);
+  // Clear the wallet nav badge as soon as the user opens this page.
+  useEffect(() => {
+    markWalletRead();
+  }, [markWalletRead]);
+
+  // 1 sat = 0.00000001 BTC — needs all 8 decimals or small balances round to 0.
+  const btc = balanceSats == null ? "0.00000000" : (balanceSats / 1e8).toFixed(8);
 
   return (
     <>
@@ -53,7 +58,7 @@ export default function Wallet() {
           <Icon name="bolt" fill className="text-secondary" size={40} />
         </div>
         <div className="font-mono-label text-on-surface-variant mb-2">Total Balance</div>
-        <div className="font-h1 text-4xl font-extrabold text-on-surface tracking-tight mb-1">{btc} BTC</div>
+        <div className="font-h1 text-3xl sm:text-4xl font-extrabold text-on-surface tracking-tight mb-1 whitespace-nowrap">{btc} BTC</div>
         <div className="font-h2 text-primary">
           {balanceSats == null ? "—" : balanceSats.toLocaleString()} Sats
         </div>
@@ -76,7 +81,7 @@ export default function Wallet() {
 
       {/* Connected → activity. Not connected → onboarding. */}
       {connected ? (
-        <RecentActivity transactions={transactions} />
+        <RecentActivity transactions={transactions} onSelect={setActiveTx} />
       ) : dismissed ? (
         <div className="p-10 flex flex-col items-center text-on-surface-variant opacity-40 gap-3">
           <Icon name="account_balance_wallet" size={40} />
@@ -90,113 +95,183 @@ export default function Wallet() {
       {modal === "connect" && <ConnectWalletModal onClose={() => setModal(null)} />}
       {modal === "receive" && <ReceiveModal onClose={() => setModal(null)} />}
       {modal === "send" && <SendModal onClose={() => setModal(null)} />}
+      {activeTx && <TxDetailModal tx={activeTx} onClose={() => setActiveTx(null)} />}
     </>
   );
 }
 
 // ── Recent activity list ────────────────────────────────────────
-function RecentActivity({ transactions }) {
+function RecentActivity({ transactions, onSelect }) {
   const items = transactions.filter((t) => t.description !== "Starting balance");
+
+  // A self-zap is a Sent and a Received that share the same invoice. They can
+  // settle a second apart, so sorting on raw time alone would split them or
+  // flip their order. Instead we give both halves of a pair the SAME sort time
+  // (the later of the two) so they always stay adjacent, then force Received
+  // above Sent — exactly how Rizful lists a self-zap.
+  const pairTime = new Map(); // invoice -> latest settle/created time across its txs
+  for (const t of items) {
+    if (!t.invoice) continue;
+    const tt = t.settled_at || t.created_at || 0;
+    pairTime.set(t.invoice, Math.max(pairTime.get(t.invoice) || 0, tt));
+  }
+  const sortTime = (t) =>
+    t.invoice && pairTime.has(t.invoice) ? pairTime.get(t.invoice) : t.settled_at || t.created_at || 0;
+  const rank = (t) => (t.type === "incoming" ? 0 : 1); // Received above Sent
+
+  const ordered = items.slice().sort((a, b) => {
+    const ta = sortTime(a);
+    const tb = sortTime(b);
+    if (tb !== ta) return tb - ta; // newest first
+    return rank(a) - rank(b);
+  });
   return (
     <section className="border-t border-outline-variant">
       <div className="p-edge-margin font-h2 text-h2">Recent Activity</div>
-      {items.length === 0 ? (
+      {ordered.length === 0 ? (
         <p className="px-edge-margin pb-6 text-on-surface-variant text-body-md">
           No transactions yet. Use Receive or Send to get started.
         </p>
       ) : (
-        items.map((tx, i) => <TxRow key={i} tx={tx} />)
+        ordered.map((tx, i) => <TxRow key={i} tx={tx} onSelect={onSelect} />)
       )}
     </section>
   );
 }
 
-function TxRow({ tx }) {
-  const { identity } = useNostr();
+function TxRow({ tx, onSelect }) {
   const incoming = tx.type === "incoming";
   const sats = Math.floor(tx.amount / 1000);
 
-  // If we have a counterparty pubkey (e.g. sender for incoming, recipient for outgoing),
-  // show their profile. Otherwise fall back to user's own profile for outgoing generic payments.
-  const counterpartyPubkey = tx.counterparty_pubkey || "";
-  const avatarPubkey = counterpartyPubkey || (incoming ? "" : (identity?.pubHex || ""));
-
-  // Fetch the profile for whoever we're displaying.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const profile = useProfile(avatarPubkey);
-
-  // Resolve a human-readable name.
-  const displayName = profile?.display_name || profile?.name ||
-    (counterpartyPubkey
-      ? "Nostr User"
-      : (incoming ? "Unknown sender" : (identity ? "You" : "Me")));
-
-  // Show "pending" only when the tx is both genuinely unsettled AND recent.
-  // The wallet service auto-settles after 5s, so anything older than 10 minutes
-  // that still shows unsettled is stale data (service was killed mid-flight).
+  // NIP-47's list_transactions reports settlement via `state`/`settled_at`,
+  // not a `settled` boolean — a tx is settled once either is present.
+  const isSettled = tx.state === "settled" || Boolean(tx.settled_at) || Boolean(tx.preimage);
   const nowSec = Math.floor(Date.now() / 1000);
-  const showPending = !tx.settled && (nowSec - tx.created_at) < 600;
+  const showPending = !isSettled && (nowSec - tx.created_at) < 600;
 
-  const preposition = incoming ? "from" : (counterpartyPubkey ? "to" : "by");
-
-  // Format invoice to a truncated style (e.g. lnbc10dhdhsn4.....am62cd) if present
-  const truncatedInvoice = tx.invoice && tx.invoice.length > 22
-    ? `${tx.invoice.slice(0, 12)}.....${tx.invoice.slice(-6)}`
+  // Truncated invoice, e.g. "lnbc210n1p...mlxy46".
+  const truncatedInvoice = tx.invoice && tx.invoice.length > 19
+    ? `${tx.invoice.slice(0, 10)}...${tx.invoice.slice(-6)}`
     : tx.invoice;
 
   return (
-    <div className="px-edge-margin py-3 border-b border-outline-variant flex items-center justify-between hover:bg-surface-container-low transition-colors gap-3">
-      {/* Avatar — show profile pic or fallback icon */}
-      <div className="shrink-0">
-        {avatarPubkey ? (
-          <Avatar pubkey={avatarPubkey} size={40} />
-        ) : (
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-            incoming ? "bg-tertiary/10" : "bg-error-container/20"
-          }`}>
-            <Icon
-              name={incoming ? "bolt" : "receipt_long"}
-              className={incoming ? "text-tertiary" : "text-error"}
-            />
-          </div>
-        )}
+    <button
+      onClick={() => onSelect(tx)}
+      className="w-full px-edge-margin py-3 border-b border-outline-variant flex items-center justify-between hover:bg-surface-container-low transition-colors gap-3 text-left"
+    >
+      <div className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center ${
+        incoming ? "bg-tertiary/10" : "bg-error-container/20"
+      }`}>
+        <Icon
+          name={incoming ? "south_west" : "north_east"}
+          className={incoming ? "text-tertiary" : "text-error"}
+        />
       </div>
 
-      {/* Label + sender/recipient name + description */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1 flex-wrap">
-          <span className="font-bold text-on-surface">
-            {incoming ? "Payment received" : "Invoice paid"}
-          </span>
-          <span className="text-on-surface-variant text-xs shrink-0">· {timeAgo(tx.created_at)}</span>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-bold text-on-surface">{incoming ? "Received" : "Sent"}</span>
           {showPending && (
-            <span className="text-zap-yellow text-xs border border-zap-yellow/50 rounded px-1.5 py-0.5 ml-1 shrink-0">
+            <span className="text-zap-yellow text-xs border border-zap-yellow/50 rounded px-1.5 py-0.5 shrink-0">
               pending
             </span>
           )}
         </div>
-        {/* Who sent / received */}
-        <p className="text-on-surface-variant text-sm truncate">
-          {preposition} <span className="text-on-surface font-medium">{displayName}</span>
-        </p>
-        {/* Optional description and invoice badge */}
-        {(tx.description || truncatedInvoice) && (
-          <p className="text-on-surface-variant text-xs truncate mt-0.5 flex items-center gap-1.5">
-            {tx.description && <span>{tx.description}</span>}
-            {truncatedInvoice && (
-              <span className="font-mono text-[10px] bg-surface-container-highest px-1.5 py-0.5 rounded text-on-surface-variant select-all">
-                {truncatedInvoice}
-              </span>
-            )}
-          </p>
+        {truncatedInvoice && (
+          <p className="font-mono text-on-surface-variant text-xs truncate">{truncatedInvoice}</p>
         )}
+        <p className="text-on-surface-variant text-xs">{timeAgo(tx.created_at)}</p>
       </div>
 
       {/* Amount — green for incoming, red for outgoing */}
       <div className={`font-mono-label font-bold shrink-0 text-base ${
         incoming ? "text-tertiary" : "text-error"
       }`}>
-        {incoming ? "+" : "-"}{sats.toLocaleString()} Sats
+        {incoming ? "+" : "-"}{sats.toLocaleString()} sats
+      </div>
+    </button>
+  );
+}
+
+// ── Transaction detail modal ──────────────────────────────────────
+function TxDetailModal({ tx, onClose }) {
+  const [copiedField, setCopiedField] = useState(null); // "hash" | "invoice"
+  const incoming = tx.type === "incoming";
+  const sats = Math.floor(tx.amount / 1000);
+  const isSettled = tx.state === "settled" || Boolean(tx.settled_at) || Boolean(tx.preimage);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const isPending = !isSettled && (nowSec - tx.created_at) < 600;
+  const status = tx.state === "failed" ? "Failed" : isPending ? "Pending" : "Succeeded";
+  const statusColor = status === "Failed" ? "text-error bg-error-container/20" : status === "Pending" ? "text-zap-yellow bg-zap-yellow/10" : "text-tertiary bg-tertiary/10";
+
+  const truncatedInvoice = tx.invoice && tx.invoice.length > 22
+    ? `${tx.invoice.slice(0, 12)}...${tx.invoice.slice(-6)}`
+    : tx.invoice;
+
+  const date = new Date(tx.created_at * 1000).toLocaleString(undefined, {
+    year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+
+  const copy = (field, value) => {
+    if (!value) return;
+    navigator.clipboard.writeText(value);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 1500);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center px-4 pb-4 sm:pb-0"
+      style={{ backgroundColor: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm bg-surface-container-low border border-outline-variant rounded-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex justify-end px-4 pt-3">
+          <button onClick={onClose} className="text-on-surface-variant hover:text-on-surface">
+            <Icon name="close" size={20} />
+          </button>
+        </div>
+
+        <div className="px-6 pb-6 flex flex-col items-center text-center gap-3">
+          <div className={`w-16 h-16 rounded-full flex items-center justify-center ${incoming ? "bg-tertiary/10" : "bg-error-container/20"}`}>
+            <Icon name={incoming ? "south_west" : "north_east"} className={incoming ? "text-tertiary" : "text-error"} size={28} />
+          </div>
+          <h2 className="font-h2 text-h2 text-on-surface">{incoming ? "Payment Received" : "Payment Sent"}</h2>
+          {truncatedInvoice && (
+            <div className="flex items-center gap-1.5 max-w-full">
+              <p className="font-mono text-xs text-on-surface-variant truncate">{truncatedInvoice}</p>
+              <button
+                onClick={() => copy("invoice", tx.invoice)}
+                className="text-on-surface-variant hover:text-primary shrink-0"
+                title="Copy invoice"
+              >
+                <Icon name={copiedField === "invoice" ? "check" : "content_copy"} size={14} className={copiedField === "invoice" ? "text-tertiary" : ""} />
+              </button>
+            </div>
+          )}
+          <div className={`font-mono-label font-bold text-3xl ${incoming ? "text-tertiary" : "text-error"}`}>
+            {incoming ? "+" : "-"}{sats.toLocaleString()} <span className="text-lg">sats</span>
+          </div>
+          <p className="text-on-surface-variant text-body-md">{date}</p>
+          <span className={`text-label-sm font-bold px-3 py-1 rounded-full ${statusColor}`}>{status}</span>
+        </div>
+
+        {tx.payment_hash && (
+          <div className="px-4 pb-4">
+            <div className="bg-surface-container-high rounded-xl p-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-on-surface-variant text-label-sm mb-1">Payment hash</p>
+                <p className="font-mono text-xs text-on-surface break-all">{tx.payment_hash}</p>
+              </div>
+              <button onClick={() => copy("hash", tx.payment_hash)} className="text-on-surface-variant hover:text-primary shrink-0">
+                <Icon name={copiedField === "hash" ? "check" : "content_copy"} size={16} className={copiedField === "hash" ? "text-tertiary" : ""} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

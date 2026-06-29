@@ -8,6 +8,7 @@ import Avatar from "./ui/Avatar";
 import NoteContent from "./ui/NoteContent";
 import { useNostr } from "../context/NostrContext";
 import { buildNote, buildReply } from "../nostr/events";
+import { uploadMedia } from "../nostr/upload";
 
 const TOOLS = [
   { icon: "image",                label: "Image" },
@@ -19,7 +20,30 @@ export default function Composer({ replyTo = null, onPosted, autoFocus = false }
   const { identity, relay } = useNostr();
   const [expanded, setExpanded] = useState(!!replyTo || autoFocus);
   const [content, setContent] = useState("");
+  // The image is kept SEPARATE from the typed text — shown as its own
+  // attachment chip — so typing a caption never collides with the URL.
+  // It only gets stitched into the note's content at post time.
+  const [image, setImage] = useState(null);
+  const [uploading, setUploading] = useState(false);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const pickImage = () => fileInputRef.current?.click();
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadMedia(file, identity.privHex);
+      setImage(url);
+    } catch (err) {
+      console.error("Image upload failed:", err);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   // Auto-focus textarea when expanded
   useEffect(() => {
@@ -36,12 +60,17 @@ export default function Composer({ replyTo = null, onPosted, autoFocus = false }
 
   const post = () => {
     const text = content.trim();
-    if (!text) return;
+    // The image URL rides along in the content (Nostr's usual convention —
+    // clients render a trailing image URL inline), but it's appended only
+    // now, so the textarea itself stayed clean for typing a caption.
+    const full = image ? (text ? `${text}\n${image}` : image) : text;
+    if (!full) return;
     const event = replyTo
-      ? buildReply(identity.privHex, text, replyTo)
-      : buildNote(identity.privHex, text);
+      ? buildReply(identity.privHex, full, replyTo)
+      : buildNote(identity.privHex, full);
     relay.publish(event);
     setContent("");
+    setImage(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setExpanded(false);
     onPosted?.(event);
@@ -49,6 +78,7 @@ export default function Composer({ replyTo = null, onPosted, autoFocus = false }
 
   const cancel = () => {
     setContent("");
+    setImage(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setExpanded(false);
   };
@@ -83,6 +113,20 @@ export default function Composer({ replyTo = null, onPosted, autoFocus = false }
         />
       </div>
 
+      {/* Attached image — its own chip, separate from the text you type */}
+      {image && (
+        <div className="mx-4 mb-3 relative inline-block">
+          <img src={image} alt="" className="max-h-[200px] rounded-xl border border-outline-variant" />
+          <button
+            onClick={() => setImage(null)}
+            title="Remove image"
+            className="absolute top-1.5 right-1.5 bg-black/70 text-white w-7 h-7 rounded-full flex items-center justify-center hover:bg-black/90"
+          >
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Note preview */}
       {content.trim() && (
         <div className="mx-4 mb-3">
@@ -95,21 +139,24 @@ export default function Composer({ replyTo = null, onPosted, autoFocus = false }
 
       {/* Toolbar */}
       <div className="flex items-center justify-between px-4 py-3 border-t border-outline-variant/30">
-        <div className="flex gap-1 text-on-surface-variant">
+        <div className="flex gap-1 text-on-surface-variant items-center">
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
           {TOOLS.map((t) => (
             <button
               key={t.icon}
               title={t.label}
-              className="p-2 hover:bg-surface-container rounded-full transition-colors hover:text-primary"
+              onClick={t.icon === "image" ? pickImage : undefined}
+              disabled={t.icon === "image" && uploading}
+              className="p-2 hover:bg-surface-container rounded-full transition-colors hover:text-primary disabled:opacity-40"
             >
-              <Icon name={t.icon} size={20} />
+              <Icon name={t.icon === "image" && uploading ? "progress_activity" : t.icon} size={20} className={t.icon === "image" && uploading ? "animate-spin" : ""} />
             </button>
           ))}
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={post}
-            disabled={!content.trim()}
+            disabled={!content.trim() && !image}
             className="bg-primary px-6 py-2 rounded-full text-on-primary font-bold text-label-sm active:scale-95 transition-all disabled:opacity-40"
           >
             {replyTo ? "Reply" : "Post"}

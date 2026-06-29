@@ -1,0 +1,15 @@
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+backend/relay/events.db
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+
+# Misc
+.DS_Store
+Nostr Training Session.pdf
+.claude/
+.gemini/

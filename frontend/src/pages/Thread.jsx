@@ -13,8 +13,19 @@ import { useFeed } from "../hooks/useFeed";
 import { useNostr } from "../context/NostrContext";
 import { KIND_NOTE, KIND_REPOST, KIND_REACTION } from "../nostr/events";
 import { compactNumber, timeAgo } from "../nostr/format";
+import { getZapperPubkey } from "../nostr/zap";
 
 const KIND_ZAP_RECEIPT = 9735;
+
+// Find the note this one is directly replying to (NIP-10): prefer the
+// "reply"-marked e tag, fall back to the last e tag (legacy convention).
+function getParentId(note) {
+  const eTags = note?.tags?.filter((t) => t[0] === "e") || [];
+  if (!eTags.length) return null;
+  const reply = eTags.find((t) => t[3] === "reply");
+  if (reply) return reply[1];
+  return eTags[eTags.length - 1][1];
+}
 
 function PeopleRow({ pubkeys, label, emoji, onSeeAll }) {
   const navigate = useNavigate();
@@ -114,12 +125,47 @@ export default function Thread() {
 
   const likers   = useMemo(() => [...new Set(engEvents.filter(e => e.kind === KIND_REACTION).map(e => e.pubkey))], [engEvents]);
   const reposters = useMemo(() => [...new Set(engEvents.filter(e => e.kind === KIND_REPOST).map(e => e.pubkey))], [engEvents]);
-  const zappers  = useMemo(() => [...new Set(engEvents.filter(e => e.kind === KIND_ZAP_RECEIPT).map(e => e.pubkey))], [engEvents]);
+  const zappers  = useMemo(() => [...new Set(engEvents.filter(e => e.kind === KIND_ZAP_RECEIPT).map(getZapperPubkey))], [engEvents]);
 
   const [modal, setModal] = useState(null); // { title, pubkeys }
 
   const root = rootNotes[0] ?? null;
   const loading = rootLoading || repliesLoading;
+
+  // Walk up the reply chain so a notification for a nested comment opens
+  // showing the whole conversation above it, not just that one reply.
+  const [ancestors, setAncestors] = useState([]); // oldest first
+  useEffect(() => {
+    if (!root) { setAncestors([]); return; }
+    let cancelled = false;
+
+    const fetchOne = (eventId) =>
+      new Promise((resolve) => {
+        let found = null;
+        const unsub = relay.subscribe(
+          { kinds: [KIND_NOTE], ids: [eventId], limit: 1 },
+          (ev) => { found = ev; },
+          () => { unsub(); resolve(found); },
+        );
+        setTimeout(() => { unsub(); resolve(found); }, 3000);
+      });
+
+    (async () => {
+      const chain = [];
+      let current = root;
+      for (let i = 0; i < 20; i++) {
+        const parentId = getParentId(current);
+        if (!parentId) break;
+        const parent = await fetchOne(parentId);
+        if (!parent || cancelled) break;
+        chain.unshift(parent);
+        setAncestors([...chain]);
+        current = parent;
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [relay, root?.id]);
 
   return (
     <>
@@ -130,7 +176,13 @@ export default function Thread() {
           <Icon name="progress_activity" className="animate-spin" size={32} />
         </div>
       ) : root ? (
-        <NoteCard note={root} threadLine={replies.length > 0} />
+        <>
+          {/* Ancestor chain — what this note is replying to, oldest first */}
+          {ancestors.map((a) => (
+            <NoteCard key={a.id} note={a} threadLine />
+          ))}
+          <NoteCard note={root} threadLine={replies.length > 0} />
+        </>
       ) : (
         <div className="p-10 flex flex-col items-center text-on-surface-variant opacity-40 gap-3">
           <Icon name="error" size={40} />

@@ -8,23 +8,26 @@ import Icon from "../ui/Icon";
 import Avatar from "../ui/Avatar";
 import Logo from "../ui/Logo";
 import { useNostr } from "../../context/NostrContext";
+import { useWallet } from "../../context/WalletContext";
 import { useDisplayName } from "../ui/DisplayName";
 import { shortNpub } from "../../nostr/format";
 
 const NAV = [
   { label: "Home", icon: "home", path: "/" },
   { label: "Explore", icon: "explore", path: "/explore" },
+  { label: "Shorts", icon: "movie", path: "/shorts" },
   { label: "Notifications", icon: "notifications", path: "/notifications" },
-  // { label: "Messages", icon: "mail", path: "/messages" },
+  { label: "Messages", icon: "mail", path: "/messages" },
   { label: "Bookmarks", icon: "bookmark", path: "/bookmarks" },
-  // { label: "Wallet", icon: "account_balance_wallet", path: "/wallet" },
+  { label: "Wallet", icon: "account_balance_wallet", path: "/wallet" },
   { label: "Relays", icon: "lan", path: "/relays" },
   { label: "Profile", icon: "person", path: "/profile" },
   { label: "Settings", icon: "settings", path: "/settings" },
 ];
 
 export default function LeftSidebar({ onCompose }) {
-  const { identity, logout, unreadCount } = useNostr();
+  const { identity, logout, unreadCount, unreadDmCount } = useNostr();
+  const { walletUnreadCount } = useWallet();
   const navigate = useNavigate();
   const name = useDisplayName(identity?.pubHex);
   const [showMenu, setShowMenu] = useState(false);
@@ -58,8 +61,7 @@ export default function LeftSidebar({ onCompose }) {
             to={item.path}
             end={item.path === "/"}
             className={({ isActive }) =>
-              `flex items-center gap-4 px-gutter py-3 cursor-pointer active:scale-95 duration-150 transition-colors hover:bg-surface-container-high rounded-full ${
-                isActive ? "text-primary font-bold" : "text-on-surface-variant font-medium"
+              `flex items-center gap-4 px-gutter py-3 cursor-pointer active:scale-95 duration-150 transition-colors hover:bg-surface-container-high rounded-full ${isActive ? "text-primary font-bold" : "text-on-surface-variant font-medium"
               }`
             }
           >
@@ -68,8 +70,18 @@ export default function LeftSidebar({ onCompose }) {
                 <span className="relative">
                   <Icon name={item.icon} fill={isActive} />
                   {item.path === "/notifications" && unreadCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-primary text-on-primary text-[10px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full px-0.5">
+                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full px-0.5">
                       {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
+                  {item.path === "/messages" && unreadDmCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full px-0.5">
+                      {unreadDmCount > 99 ? "99+" : unreadDmCount}
+                    </span>
+                  )}
+                  {item.path === "/wallet" && walletUnreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full px-0.5">
+                      {walletUnreadCount > 99 ? "99+" : walletUnreadCount}
                     </span>
                   )}
                 </span>

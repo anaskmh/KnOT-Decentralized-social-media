@@ -6,12 +6,13 @@ import { useNostr } from "../../context/NostrContext";
 const ITEMS = [
   { icon: "home", path: "/" },
   { icon: "search", path: "/explore" },
+  { icon: "movie", path: "/shorts" },
   { icon: "notifications", path: "/notifications" },
   { icon: "mail", path: "/messages" },
 ];
 
 export default function MobileNav({ onCompose }) {
-  const { unreadCount } = useNostr();
+  const { unreadCount, unreadDmCount } = useNostr();
 
   return (
     <>
@@ -27,8 +28,13 @@ export default function MobileNav({ onCompose }) {
               <span className="relative">
                 <Icon name={item.icon} fill={isActive} />
                 {item.path === "/notifications" && unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-primary text-on-primary text-[10px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full px-0.5">
+                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full px-0.5">
                     {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
+                {item.path === "/messages" && unreadDmCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold min-w-[16px] h-4 flex items-center justify-center rounded-full px-0.5">
+                    {unreadDmCount > 99 ? "99+" : unreadDmCount}
                   </span>
                 )}
               </span>

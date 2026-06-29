@@ -4,17 +4,14 @@
 import { useState } from "react";
 
 import Header from "../components/ui/Header";
-import Icon from "../components/ui/Icon";
 import Composer from "../components/Composer";
 import Feed from "../components/Feed";
-import SettingsModal from "../components/SettingsModal";
 import { useNostr } from "../context/NostrContext";
 import { KIND_NOTE } from "../nostr/events";
 
 export default function Home() {
   const { follows } = useNostr();
   const [tab, setTab] = useState("global"); // "global" | "following"
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // "Following" filters to people in your contact list (NIP-02).
   const filter =
@@ -24,17 +21,7 @@ export default function Home() {
 
   return (
     <>
-      <Header
-        title="Home"
-        right={
-          <>
-            <button onClick={() => setSettingsOpen(true)} title="Content & safety settings">
-              <Icon name="settings" className="text-on-surface-variant cursor-pointer hover:text-primary transition-colors" />
-            </button>
-          </>
-        }
-      />
-      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      <Header title="Home" />
 
       {/* Global / Following tabs */}
       <div className="flex border-b border-outline-variant glass-header sticky top-14 z-30">

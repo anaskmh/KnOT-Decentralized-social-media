@@ -1,5 +1,5 @@
 // Shows a user's display name (from kind-0) or a short npub fallback.
-import { useProfile } from "../../context/NostrContext";
+import { useProfile, useProfileLoading } from "../../context/NostrContext";
 import { shortNpub } from "../../nostr/format";
 
 export function useDisplayName(pubkey) {
@@ -10,10 +10,19 @@ export function useDisplayName(pubkey) {
 export function Handle({ pubkey, className = "" }) {
   const profile = useProfile(pubkey);
   const handle = profile?.nip05 || shortNpub(pubkey || "");
-  return <span className={className}>@{handle.replace(/^_@/, "")}</span>;
+  if (!handle) return <span className={className} />;
+  return <span className={className}>@{String(handle).replace(/^_@/, "")}</span>;
 }
 
 export default function DisplayName({ pubkey, className = "" }) {
   const name = useDisplayName(pubkey);
+  const loading = useProfileLoading(pubkey);
+
+  if (loading) {
+    return (
+      <span className={`inline-block h-3.5 w-24 rounded bg-surface-container-high animate-pulse align-middle ${className}`} />
+    );
+  }
+
   return <span className={className}>{name}</span>;
 }

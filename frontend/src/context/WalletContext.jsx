@@ -17,7 +17,13 @@ export function WalletProvider({ children }) {
   const [balanceMsat, setBalanceMsat] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [error, setError] = useState("");
+  const [walletUnreadCount, setWalletUnreadCount] = useState(0);
+  const [lastWalletActivity, setLastWalletActivity] = useState(null);
   const nwcRef = useRef(null);
+  // Keys of every settled incoming tx we've already accounted for. `null`
+  // means "haven't loaded once yet" — the very first load is a baseline,
+  // not a burst of new activity, so it must not fire notifications.
+  const seenIncomingRef = useRef(null);
 
   const connected = Boolean(uri);
 
@@ -28,6 +34,7 @@ export function WalletProvider({ children }) {
       nwcRef.current = null;
       setBalanceMsat(null);
       setTransactions([]);
+      seenIncomingRef.current = null;
       return undefined;
     }
     try {
@@ -56,8 +63,28 @@ export function WalletProvider({ children }) {
         nwcRef.current.listTransactions(),
       ]);
       setBalanceMsat(bal.balance);
-      setTransactions(txs.transactions || []);
+      const list = txs.transactions || [];
+      setTransactions(list);
       setError("");
+
+      // Detect newly-settled incoming payments (a paid invoice, a zap, etc.)
+      // so we can surface a "wallet activity" toast + nav badge — NWC has no
+      // push event for this, so we diff each poll against the last one.
+      const isSettled = (tx) => tx.state === "settled" || Boolean(tx.settled_at) || Boolean(tx.preimage);
+      const key = (tx) => tx.payment_hash || `${tx.invoice}-${tx.created_at}`;
+      const incomingSettled = list.filter((tx) => tx.type === "incoming" && isSettled(tx));
+
+      if (seenIncomingRef.current === null) {
+        // First load — just establish the baseline, don't notify.
+        seenIncomingRef.current = new Set(incomingSettled.map(key));
+      } else {
+        const newOnes = incomingSettled.filter((tx) => !seenIncomingRef.current.has(key(tx)));
+        if (newOnes.length > 0) {
+          newOnes.forEach((tx) => seenIncomingRef.current.add(key(tx)));
+          setWalletUnreadCount((n) => n + newOnes.length);
+          setLastWalletActivity(newOnes[0]);
+        }
+      }
     } catch (e) {
       setError(e.message);
     }
@@ -89,6 +116,8 @@ export function WalletProvider({ children }) {
     return result; // { preimage }
   }, [loadAll]);
 
+  const markWalletRead = useCallback(() => setWalletUnreadCount(0), []);
+
   const value = {
     connected,
     balanceMsat,
@@ -100,6 +129,9 @@ export function WalletProvider({ children }) {
     refresh: loadAll,
     makeInvoice,
     payInvoice,
+    walletUnreadCount,
+    markWalletRead,
+    lastWalletActivity,
   };
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

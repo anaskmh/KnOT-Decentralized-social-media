@@ -25,8 +25,17 @@ export const KIND_DM = 4;
 export const KIND_REPOST = 6;
 export const KIND_REACTION = 7;
 export const KIND_ZAP_REQUEST = 9734;
+// Short-form portrait video — "Shorts"/Reels (NIP-71). The video URL lives in
+// an "imeta" tag; the note's content is the caption.
+export const KIND_VIDEO_SHORT = 22;
 export const KIND_MUTES = 10000;
 export const KIND_BOOKMARKS = 10003;
+// "I'm typing to you" ping — not part of any NIP, just a tiny ephemeral
+// event our own client understands. Ephemeral kinds (20000-29999) are
+// meant to be relayed live and never need to be kept in storage.
+export const KIND_TYPING = 20009;
+// Reporting (NIP-56) — flags a user/note for relays & other clients to see.
+export const KIND_REPORT = 1984;
 
 // Small helper so every builder signs the same way.
 function sign(privHex, template) {
@@ -130,6 +139,28 @@ export async function buildDM(privHex, recipientPubHex, text) {
     created_at: now(),
     tags: [["p", recipientPubHex]],
     content: ciphertext,
+  });
+}
+
+// A typing ping — tells the recipient "I'm composing a message right now".
+// No content needed; the "p" tag says who it's for.
+export function buildTyping(privHex, recipientPubHex) {
+  return sign(privHex, {
+    kind: KIND_TYPING,
+    created_at: now(),
+    tags: [["p", recipientPubHex]],
+    content: "",
+  });
+}
+
+// A report against a user (NIP-56). `type` is one of: spam, nudity,
+// profanity, illegal, malware, other — the standard NIP-56 report types.
+export function buildReport(privHex, targetPubHex, type, reason = "") {
+  return sign(privHex, {
+    kind: KIND_REPORT,
+    created_at: now(),
+    tags: [["p", targetPubHex, type]],
+    content: reason,
   });
 }
 

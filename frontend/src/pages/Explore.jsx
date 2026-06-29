@@ -10,6 +10,7 @@ import Icon from "../components/ui/Icon";
 import NoteCard from "../components/NoteCard";
 import UserRow from "../components/UserRow";
 import { useFeed } from "../hooks/useFeed";
+import { useNostr } from "../context/NostrContext";
 import { KIND_NOTE, KIND_PROFILE } from "../nostr/events";
 import { toNpub } from "../nostr/format";
 import { deriveTrends } from "../nostr/trends";
@@ -36,6 +37,7 @@ export default function Explore() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const initialQuery = params.get("q") || "";
+  const { follows } = useNostr();
   const [query, setQuery] = useState(initialQuery);
   const [tab, setTab] = useState("For You");
 
@@ -47,6 +49,14 @@ export default function Explore() {
   // Pull recent kind-0 profiles so we can search PEOPLE by name.
   const profileEvents = useFeed({ kinds: [KIND_PROFILE], limit: 300 });
 
+  // Always load the profiles of everyone I FOLLOW, so people in my own social
+  // graph are searchable by name even if they're not in the recent sample and
+  // aren't indexed by the relays' NIP-50 search.
+  const followProfiles = useFeed(
+    follows.length ? { kinds: [KIND_PROFILE], authors: follows, limit: 1000 } : null,
+    { enabled: follows.length > 0 },
+  );
+
   // Fix 2: if the query is an exact npub/hex, fetch THAT profile directly from
   // the relays — so it's found even when it isn't in the recent sample.
   const directPubkey = useMemo(() => queryToPubkey(query), [query]);
@@ -55,10 +65,29 @@ export default function Explore() {
     { enabled: Boolean(directPubkey) },
   );
 
+  // Debounce the typed name so we don't fire a fresh relay subscription on
+  // every keystroke.
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQuery(query), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  // Relay-side name search (NIP-50): ask search-capable relays (nostr.band,
+  // search.nos.today…) for kind-0 profiles matching the typed name. This is
+  // what makes searching a person by name actually work — the recent sample
+  // above only contains whoever happened to stream in, so anyone outside it
+  // would never be found without this.
+  const nameQuery = debouncedQuery.trim().replace(/^@/, "");
+  const searchProfiles = useFeed(
+    nameQuery && !directPubkey ? { kinds: [KIND_PROFILE], search: nameQuery, limit: 50 } : null,
+    { enabled: Boolean(nameQuery) && !directPubkey },
+  );
+
   const people = useMemo(() => {
     // Keep only the newest profile per pubkey (streamed sample + direct fetch).
     const byPubkey = new Map();
-    for (const event of [...profileEvents.notes, ...directProfile.notes]) {
+    for (const event of [...profileEvents.notes, ...followProfiles.notes, ...directProfile.notes, ...searchProfiles.notes]) {
       const existing = byPubkey.get(event.pubkey);
       if (existing && existing.created_at >= event.created_at) continue;
       try {
@@ -66,7 +95,7 @@ export default function Explore() {
       } catch { /* skip malformed profiles */ }
     }
     return [...byPubkey.values()];
-  }, [profileEvents.notes, directProfile.notes]);
+  }, [profileEvents.notes, followProfiles.notes, directProfile.notes, searchProfiles.notes]);
 
   // People whose name / handle / bio / PUBKEY / npub matches the query.
   const peopleResults = useMemo(() => {

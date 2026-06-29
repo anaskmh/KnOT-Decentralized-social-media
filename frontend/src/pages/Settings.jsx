@@ -10,9 +10,10 @@ import { useNostr } from "../context/NostrContext";
 const ITEMS = [
   { label: "Account",              path: "/settings/account",    icon: "manage_accounts" },
   { label: "Appearance",           path: "/settings/appearance", icon: "palette" },
-  { label: "Muted Content",        path: "/settings/muted",      icon: "volume_off" },
+  { label: "Blocked Users",        path: "/settings/muted",      icon: "block" },
   { label: "Content Moderation",   path: "/settings/moderation", icon: "shield" },
   { label: "Zaps",                 path: "/settings/zaps",       icon: "bolt" },
+  { label: "Media Server",         path: "/settings/media-server", icon: "cloud_upload" },
   { label: "Network & Relays",     path: "/relays",              icon: "lan" },
   { label: "Notifications",        path: "/settings/notifications", icon: "notifications" },
 ];

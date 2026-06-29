@@ -11,6 +11,7 @@ import DisplayName, { Handle } from "./ui/DisplayName";
 import NoteContent from "./ui/NoteContent";
 import ReplyModal from "./ReplyModal";
 import ZapModal from "./ZapModal";
+import PeopleModal from "./PeopleModal";
 import ShareModal from "./ShareModal";
 import { useNostr, useProfile } from "../context/NostrContext";
 import { useEngagement } from "../hooks/useEngagement";
@@ -27,6 +28,7 @@ export default function NoteCard({ note, threadLine = false, indent = false }) {
 
   const [replyOpen, setReplyOpen] = useState(false);
   const [zapOpen, setZapOpen] = useState(false);
+  const [likersOpen, setLikersOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [hover, setHover] = useState(false);
   const [revealed, setRevealed] = useState(false);
@@ -59,6 +61,10 @@ export default function NoteCard({ note, threadLine = false, indent = false }) {
   const like = (e) => {
     e.stopPropagation();
     if (!engagement.liked) relay.publish(buildReaction(identity.privHex, note));
+  };
+  const openLikers = (e) => {
+    e.stopPropagation();
+    if (engagement.likers.length > 0) setLikersOpen(true);
   };
   const repost = (e) => {
     e.stopPropagation();
@@ -106,31 +112,44 @@ export default function NoteCard({ note, threadLine = false, indent = false }) {
 
             {/* Engagement row */}
             <div className="flex justify-between items-center mt-3 text-on-surface-variant max-w-sm">
-              <button onClick={(e) => { e.stopPropagation(); setReplyOpen(true); }} className="flex items-center gap-2 transition-colors hover:text-secondary">
+              <button onClick={(e) => { e.stopPropagation(); setReplyOpen(true); }} className="flex items-center gap-2 transition-colors hover:text-secondary" type="button">
                 <Icon name="chat_bubble" size={18} />
                 <span className="text-mono-label font-mono-label">{compactNumber(engagement.replies)}</span>
               </button>
 
-              <button onClick={repost} className={`flex items-center gap-2 transition-colors repost-hover ${engagement.reposted ? "text-repost-green" : ""}`}>
+              <button onClick={repost} className={`flex items-center gap-2 transition-colors repost-hover ${engagement.reposted ? "text-repost-green" : ""}`} type="button">
                 <Icon name="repeat" size={18} />
                 <span className="text-mono-label font-mono-label">{compactNumber(engagement.reposts)}</span>
               </button>
 
-              <button onClick={like} className={`flex items-center gap-2 transition-colors like-hover ${engagement.liked ? "text-like-red" : ""}`}>
-                <Icon name="favorite" fill={engagement.liked} size={18} />
-                <span className="text-mono-label font-mono-label">{compactNumber(engagement.likes)}</span>
-              </button>
+              <div className="flex items-center gap-1">
+                <button onClick={like} className={`flex items-center gap-2 transition-colors like-hover ${engagement.liked ? "text-like-red" : ""}`} type="button">
+                  <Icon name="favorite" fill={engagement.liked} size={18} />
+                </button>
+                {engagement.likes > 0 ? (
+                  <button
+                    onClick={openLikers}
+                    className="text-mono-label font-mono-label hover:text-on-surface transition-colors"
+                    title="View likes"
+                    type="button"
+                  >
+                    {compactNumber(engagement.likes)}
+                  </button>
+                ) : (
+                  <span className="text-mono-label font-mono-label">{compactNumber(engagement.likes)}</span>
+                )}
+              </div>
 
-              <button onClick={(e) => { e.stopPropagation(); setZapOpen(true); }} className="flex items-center gap-2 transition-colors zap-hover">
+              <button onClick={(e) => { e.stopPropagation(); setZapOpen(true); }} className="flex items-center gap-2 transition-colors zap-hover" type="button">
                 <Icon name="bolt" fill className="text-tertiary-fixed" size={18} />
-                <span className="text-mono-label font-mono-label text-tertiary-fixed">{compactNumber(engagement.zaps)}</span>
+                <span className="text-mono-label font-mono-label text-tertiary-fixed">{compactNumber(engagement.zapSats)}</span>
               </button>
 
-              <button onClick={(e) => { e.stopPropagation(); toggleBookmark(note.id); }} className="hover:text-primary">
+              <button onClick={(e) => { e.stopPropagation(); toggleBookmark(note.id); }} className="hover:text-primary" type="button">
                 <Icon name="bookmark" fill={bookmarked} size={18} className={bookmarked ? "text-primary" : ""} />
               </button>
 
-              <button onClick={share} className="hover:text-primary transition-colors" title="Share">
+              <button onClick={share} className="hover:text-primary transition-colors" title="Share" type="button">
                 <Icon name="share" size={18} />
               </button>
 
@@ -139,6 +158,7 @@ export default function NoteCard({ note, threadLine = false, indent = false }) {
                   onClick={(e) => { e.stopPropagation(); toggleMute(note.pubkey); }}
                   title="Mute this author"
                   className="hover:text-error"
+                  type="button"
                 >
                   <Icon name="person_off" size={18} />
                 </button>
@@ -151,6 +171,13 @@ export default function NoteCard({ note, threadLine = false, indent = false }) {
       {replyOpen && <ReplyModal note={note} onClose={() => setReplyOpen(false)} />}
       {zapOpen && <ZapModal note={note} onClose={() => setZapOpen(false)} />}
       {shareOpen && <ShareModal note={note} onClose={() => setShareOpen(false)} />}
+      {likersOpen && (
+        <PeopleModal
+          title={`${compactNumber(engagement.likes)} Likes`}
+          pubkeys={engagement.likers}
+          onClose={() => setLikersOpen(false)}
+        />
+      )}
     </>
   );
 }

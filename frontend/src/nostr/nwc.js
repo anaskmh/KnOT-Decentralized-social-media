@@ -106,7 +106,21 @@ export class NWC {
     if (zapRequest) params.zap_request = zapRequest;
     return this.request("pay_invoice", params); // → { preimage }
   }
-  listTransactions() {
-    return this.request("list_transactions", { limit: 20 }); // → { transactions: [...] }
+  // Pages through list_transactions until the wallet has no more to give us,
+  // so the history here matches the wallet's own app exactly (not just the
+  // most recent 20) — appending each page keeps the wallet's own order intact.
+  async listTransactions() {
+    const PAGE_SIZE = 100;
+    const MAX_PAGES = 20; // safety cap — 2000 transactions is plenty
+    const all = [];
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const { transactions = [] } = await this.request("list_transactions", {
+        limit: PAGE_SIZE,
+        offset: page * PAGE_SIZE,
+      });
+      all.push(...transactions);
+      if (transactions.length < PAGE_SIZE) break; // last page
+    }
+    return { transactions: all };
   }
 }
